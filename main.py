@@ -20,21 +20,29 @@ import matplotlib.pyplot as plt
 
 
 
-# Set up Streamlit app
+# <-----------------------------------Set up Streamlit app------------------------------------>
+
 st.set_page_config(page_title="Corporate Training Knowledge Hub", layout="wide")
 st.title("Corporate Training Knowledge Hub")
 
-# Initialize components
+# <------------------------------------Initialize components------------------------------------->
+
 llm = Ollama(model="llama3.2")  # Replace with your Llama model
 embedding_model = HuggingFaceEmbeddings(model_name="all-MiniLM-L6-v2")
 vectorstore = None
 document_store = []
 
-# Define tabs for functionalities
+
+
+# <---------------------------------------------Define tabs for functionalities------------------------------------>
+
+
 tabs = st.tabs(["Upload Files", "Original Context", "Document Summarization", "Interactive Q&A", "Word Cloud"])
 import tempfile
 
-# Upload and process files
+# <--------------------------------------------------Upload and process files------------------------------------->
+
+
 def process_files(uploaded_files):
     global vectorstore
     for uploaded_file in uploaded_files:
@@ -86,7 +94,8 @@ def process_files(uploaded_files):
         # Delete the temporary file after processing
         os.remove(temp_file_path)
 
-# Summarization function
+# <----------------------------------------------------Summarization function------------------------------------->
+
 summary_prompt = PromptTemplate(
     input_variables=["context"],
     template=(
@@ -129,7 +138,9 @@ def summarize_text(text):
     final_summary = " ".join(summaries)
     return final_summary
 
-# Q&A function
+# <------------------------------------------------------Q&A function----------------------------------->
+
+
 def answer_question(question):
     if not document_store:
         return "No documents uploaded yet. Please upload files first."
@@ -140,7 +151,12 @@ def answer_question(question):
     qa_chain = RetrievalQA(llm=llm, retriever=retriever)
     return qa_chain.run(question)
 
-# Word Cloud Function
+
+
+
+#<-------------------------------------------- Word Cloud Function---------------------------------->
+
+
 def generate_word_cloud(text):
     wordcloud = WordCloud(
         background_color="white",
@@ -156,7 +172,9 @@ def generate_word_cloud(text):
     plt.axis("off")
     st.pyplot(plt)
 
-# Main App
+# <-------------------------------------------------------Main App-------------------------------->
+
+
 st.sidebar.header("Welcome!")
 st.sidebar.info(
     "Upload corporate training documents, explore their contents, get concise summaries, "
