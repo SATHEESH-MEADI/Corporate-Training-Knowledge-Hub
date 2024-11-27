@@ -23,17 +23,6 @@ import tempfile
 from transformers import AutoModelForCausalLM, AutoTokenizer
 
 
-
-
-
-
-
-
-
-
-
-
-
 # <-----------------------------------Set up Streamlit app------------------------------------>
 st.set_page_config(page_title="Corporate Training Knowledge Hub", layout="wide")
 st.title("Corporate Training Knowledge Hub")
