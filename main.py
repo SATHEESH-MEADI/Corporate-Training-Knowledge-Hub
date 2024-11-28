@@ -38,8 +38,16 @@ bart_model = BartForConditionalGeneration.from_pretrained(bart_model_name)
 # Initialize the LLaMA model using Ollama
 llm = Ollama(model="llama3.2")  # Replace with your locally installed LLaMA model
 
-
-    
+# Initialize Hugging Face pipelines
+@st.cache_resource
+def load_pipelines():
+    """
+    Loads NER and Zero-Shot Classification pipelines from Hugging Face.
+    """
+    ner_pipeline = pipeline("ner", model="dslim/bert-base-NER", grouped_entities=True)
+    classification_pipeline = pipeline("zero-shot-classification", model="facebook/bart-large-mnli")
+    return ner_pipeline, classification_pipeline
+ner_pipeline, classification_pipeline = load_pipelines()    
 
 
 # Load embedding model for document processing
@@ -48,7 +56,7 @@ vectorstore = None
 document_store = []
 
 # <---------------------------------------------Define tabs for functionalities------------------------------------>
-tabs = st.tabs(["Upload Files", "Original Context", "Document Summarization", "Interactive Q&A", "Word Cloud", "Compare Docs"])
+tabs = st.tabs(["Upload Files", "Original Context", "Document Summarization", "Interactive Q&A", "Word Cloud", "Compare Docs","Roadmaps"])
 
 # <--------------------------------------------------Upload and process files------------------------------------->
 def process_files(uploaded_files):
@@ -90,7 +98,12 @@ def process_files(uploaded_files):
             st.warning(f"File type '{file_type}' is not supported.")
             os.remove(temp_file_path)
             continue
+        # Identify technologies using NER and Zero-Shot Classification
+        identified_technologies_ner = identify_technologies_ner(document.page_content, ner_pipeline)
+        identified_technologies_zero_shot = identify_technologies_zero_shot(document.page_content, classification_pipeline)
+        all_technologies = list(set(identified_technologies_ner + identified_technologies_zero_shot))
 
+        document.metadata["technologies"] = all_technologies
         document_store.append(document)
         texts = [document.page_content]
         if vectorstore is None:
@@ -169,6 +182,34 @@ def compare_documents():
     similarity = SequenceMatcher(None, doc1_content, doc2_content).ratio()
     st.write(f"### Similarity Score: {similarity:.2%}")
 
+
+
+
+#<------------------------------------Technologies Identification------------------------------------------------------------------>
+
+
+def identify_technologies_ner(text, ner_pipeline):
+    """
+    Identifies potential technologies using Named Entity Recognition (NER).
+    """
+    entities = ner_pipeline(text)
+    tech_entities = [ent["word"] for ent in entities if "tech" in ent.get("entity", "").lower()]
+    return list(set(tech_entities))  # Remove duplicates
+
+
+def identify_technologies_zero_shot(text, classification_pipeline):
+    """
+    Identifies potential technologies using Zero-Shot Classification.
+    """
+    candidate_labels = [
+        "Programming Language", "Machine Learning", "Data Science", "Web Development", 
+        "Cybersecurity", "Artificial Intelligence", "Blockchain", "Cloud Computing",
+        "Augmented Reality", "Virtual Reality", "DevOps", "Internet of Things"
+    ]
+    results = classification_pipeline(text, candidate_labels=candidate_labels, multi_label=True)
+    technologies = [label for label, score in zip(results["labels"], results["scores"]) if score > 0.5]
+    return technologies
+
 # <-------------------------------------------------------Main App-------------------------------->
 st.sidebar.header("Welcome!")
 st.sidebar.info("Upload corporate training documents, explore their contents, get concise summaries, generate word clouds, and ask interactive questions!")
@@ -221,4 +262,27 @@ with tabs[4]:
 with tabs[5]:
     st.header("Compare Documents")
     compare_documents()
+
+with tabs[6]:  # Roadmaps tab
+    st.header("Roadmaps for Identified Technologies")
+
+    if document_store:
+        for doc in document_store:
+            technologies = doc.metadata.get("technologies", [])
+            if technologies:
+                st.write(f"### {doc.metadata['name']}")
+                for tech in technologies:
+                    st.write(f"#### Roadmap for {tech}:")
+                    
+                    # Generate a roadmap dynamically using LLM
+                    roadmap_prompt = f"Create a detailed learning roadmap for mastering {tech}. Focus on key milestones, resources, and practical projects."
+                    roadmap = llm(roadmap_prompt)  # Generate roadmap with the LLM
+                    
+                    # Display the roadmap
+                    st.write(roadmap)
+            else:
+                st.write(f"No technologies identified in {doc.metadata['name']}.")
+    else:
+        st.info("Please upload documents to analyze and generate roadmaps.")
+
 
