@@ -13,16 +13,6 @@ from langchain_community.embeddings import HuggingFaceEmbeddings  # Updated impo
 from langchain.chains import LLMChain
 from langchain.prompts import PromptTemplate
 from langchain.chains.question_answering import load_qa_chain
-from langchain_community.llms import HuggingFacePipeline  # Updated imports
-import os
-from wordcloud import WordCloud
-import matplotlib.pyplot as plt
-from transformers import BartForConditionalGeneration, BartTokenizer
-from difflib import HtmlDiff, SequenceMatcher
-import tempfile
-from transformers import AutoModelForCausalLM, AutoTokenizer, AutoModelForTokenClassification, AutoModelForSeq2SeqLM
-from transformers import pipeline
-import nltk
 from langchain_core.messages import HumanMessage,AIMessage
 from langchain.text_splitter import RecursiveCharacterTextSplitter
 from langchain_core.prompts import ChatPromptTemplate
@@ -31,18 +21,15 @@ from langchain.chains.combine_documents import create_stuff_documents_chain
 from langchain.chains import create_retrieval_chain
 from langchain.chains import create_history_aware_retriever
 from langchain.memory import ConversationBufferMemory
-
-
-
-
-
-
-
-
-
-# Download NLTK punkt tokenizer for sentence splitting
-nltk.download("punkt")
-from nltk.tokenize import sent_tokenize
+from langchain_community.llms import HuggingFacePipeline  # Updated imports
+import os
+from wordcloud import WordCloud
+import matplotlib.pyplot as plt
+from transformers import BartForConditionalGeneration, BartTokenizer
+from difflib import HtmlDiff, SequenceMatcher
+import tempfile
+from transformers import AutoModelForCausalLM, AutoTokenizer
+from transformers import AutoModelForSeq2SeqLM
 
 
 # <-----------------------------------Set up Streamlit app------------------------------------>
@@ -50,6 +37,13 @@ st.set_page_config(page_title="Corporate Training Knowledge Hub", layout="wide")
 st.title("Corporate Training Knowledge Hub")
 
 # <------------------------------------Initialize components------------------------------------->
+# Load BART model for summarization
+bart_model_name = "facebook/bart-large-cnn"
+bart_tokenizer = BartTokenizer.from_pretrained(bart_model_name)
+bart_model = BartForConditionalGeneration.from_pretrained(bart_model_name)
+
+
+
 # Initialize the LLaMA model using Ollama
 llm = Ollama(model="llama3.2")  # Replace with your locally installed LLaMA model
 
@@ -63,8 +57,7 @@ vectorstore = None
 document_store = []
 
 # <---------------------------------------------Define tabs for functionalities------------------------------------>
-
-tabs = st.tabs(["Upload Files", "Original Context", "Document Summarization", "Interactive Q&A", "Word Cloud", "Compare Docs", "Highlights"])
+tabs = st.tabs(["Upload Files", "Original Context", "Document Summarization", "Interactive Q&A", "Word Cloud", "Compare Docs"])
 
 # <--------------------------------------------------Upload and process files------------------------------------->
 def process_files(uploaded_files):
@@ -108,32 +101,25 @@ def process_files(uploaded_files):
             continue
 
         document_store.append(document)
-        texts = [document.page_content]
+
+        splitter = RecursiveCharacterTextSplitter(chunk_size=1000, chunk_overlap=200)
+        chunks = splitter.split_documents([document])
+
         if vectorstore is None:
-            vectorstore = FAISS.from_texts(texts, embedding_model)
+            vectorstore = FAISS.from_documents(chunks, embedding_model)
         else:
-            vectorstore.add_texts(texts)
+            vectorstore.add_documents(chunks)
 
         os.remove(temp_file_path)
 
 # <----------------------------------------------------Summarization function------------------------------------->
-
-def summarize_text_with_llama(text):
+def summarize_text(text, max_length=500, min_length=30):
     """
-    Summarizes the provided text using the locally running LLaMA 3.2 model.
+    Summarizes the provided text using facebook/bart-large-cnn.
     """
-    # Prepare the context for summarization
-    prompt = f"""
-    Please summarize the following text:
-    
-    {text}
-    """
-
-    # Use the locally running LLaMA model to generate the summary
-    response = llm(prompt)
-
-    # Extract and return the generated summary
-    summary = response.strip()
+    inputs = bart_tokenizer.encode("summarize: " + text, return_tensors="pt", max_length=1024, truncation=True)
+    summary_ids = bart_model.generate(inputs, max_length=max_length, min_length=min_length, length_penalty=2.0, num_beams=4, early_stopping=True)
+    summary = bart_tokenizer.decode(summary_ids[0], skip_special_tokens=True)
     return summary
 
 # <------------------------------------------------------Interactive Q&A Functionality----------------------------------->
@@ -215,54 +201,6 @@ def compare_documents():
     similarity = SequenceMatcher(None, doc1_content, doc2_content).ratio()
     st.write(f"### Similarity Score: {similarity:.2%}")
 
-
-#< -----------------------------------------------------------Highlights-------------------------------------->
-
-
-ner_model = pipeline("ner", model="dbmdz/bert-large-cased-finetuned-conll03-english", aggregation_strategy="simple")
-
-
-def generate_description_with_ollama(entity_text, entity_type, context):
-    """
-    Generates concise descriptions for entities using Ollama.
-    """
-    prompt = f"""
-    Entity: {entity_text} ({entity_type})
-    Context: {context}
-    Task: Provide a single-sentence refined description of this entity.
-    """
-
-    # Use the locally installed Ollama model
-    response = llm(prompt)
-    return response.strip()
-
-def extract_highlights_with_ollama(text):
-    """
-    Extracts concise highlights and generates descriptions using Ollama 3.2.
-    """
-    entities = ner_model(text)
-    valid_entity_types = {"PER", "ORG", "LOC", "GPE", "DATE"}
-    seen_entities = set()
-    highlights = []
-
-    for entity in entities:
-        entity_text = entity["word"]
-        entity_type = entity["entity_group"]
-
-        if entity_type in valid_entity_types and entity_text not in seen_entities:
-            seen_entities.add(entity_text)
-
-            # Extract context sentences (1-2 sentences only)
-            context_sentences = [s for s in sent_tokenize(text) if entity_text in s]
-            context = " ".join(context_sentences[:1]) if context_sentences else "No detailed context available."
-
-            # Generate concise description
-            refined_description = generate_description_with_ollama(entity_text, entity_type, context)
-            highlights.append(f"{entity_text} ({entity_type}) - {refined_description}")
-
-    return highlights
-
-
 # <-------------------------------------------------------Main App-------------------------------->
 st.sidebar.header("Welcome!")
 st.sidebar.info("Upload corporate training documents, explore their contents, get concise summaries, generate word clouds, and ask interactive questions!")
@@ -289,7 +227,7 @@ with tabs[2]:
     if document_store:
         for doc in document_store:
             st.write(f"### {doc.metadata['name']}")
-            summary = summarize_text_with_llama(doc.page_content)
+            summary = summarize_text(doc.page_content)
             st.write("### Summary:")
             st.write(summary)
     else:
@@ -328,18 +266,3 @@ with tabs[4]:
 with tabs[5]:
     st.header("Compare Documents")
     compare_documents()
-
-with tabs[6]:
-    st.header("Highlights (Concise Contextual Insights)")
-
-    if document_store:
-        for doc in document_store:
-            st.subheader(f"Document: {doc.metadata['name']}")
-            highlights = extract_highlights_with_ollama(doc.page_content)
-            if highlights:
-                for i, highlight in enumerate(highlights, start=1):
-                    st.markdown(f"**{i}. {highlight}**")
-            else:
-                st.write("No significant entities or highlights found.")
-    else:
-        st.info("No documents uploaded yet.")

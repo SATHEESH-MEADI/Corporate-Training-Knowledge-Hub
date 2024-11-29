@@ -20,24 +20,16 @@ import matplotlib.pyplot as plt
 from transformers import BartForConditionalGeneration, BartTokenizer
 from difflib import HtmlDiff, SequenceMatcher
 import tempfile
-from transformers import AutoModelForCausalLM, AutoTokenizer, AutoModelForTokenClassification, AutoModelForSeq2SeqLM
+from transformers import AutoModelForCausalLM, AutoTokenizer, AutoModelForTokenClassification
 from transformers import pipeline
 import nltk
-from langchain_core.messages import HumanMessage,AIMessage
-from langchain.text_splitter import RecursiveCharacterTextSplitter
-from langchain_core.prompts import ChatPromptTemplate
-from langchain_core.prompts import MessagesPlaceholder
-from langchain.chains.combine_documents import create_stuff_documents_chain
-from langchain.chains import create_retrieval_chain
-from langchain.chains import create_history_aware_retriever
-from langchain.memory import ConversationBufferMemory
+import networkx as nx
+from keybert import KeyBERT
+from nltk.tokenize import word_tokenize
 
 
-
-
-
-
-
+# Initialize KeyBERT for keyword extraction
+kw_model = KeyBERT()
 
 
 # Download NLTK punkt tokenizer for sentence splitting
@@ -50,11 +42,10 @@ st.set_page_config(page_title="Corporate Training Knowledge Hub", layout="wide")
 st.title("Corporate Training Knowledge Hub")
 
 # <------------------------------------Initialize components------------------------------------->
+
+
 # Initialize the LLaMA model using Ollama
 llm = Ollama(model="llama3.2")  # Replace with your locally installed LLaMA model
-
-
-    
 
 
 # Load embedding model for document processing
@@ -64,7 +55,7 @@ document_store = []
 
 # <---------------------------------------------Define tabs for functionalities------------------------------------>
 
-tabs = st.tabs(["Upload Files", "Original Context", "Document Summarization", "Interactive Q&A", "Word Cloud", "Compare Docs", "Highlights"])
+tabs = st.tabs(["Upload Files", "Original Context", "Document Summarization", "Interactive Q&A", "Word Cloud", "Compare Docs", "Highlights","Course Path Generation"])
 
 # <--------------------------------------------------Upload and process files------------------------------------->
 def process_files(uploaded_files):
@@ -146,43 +137,23 @@ def answer_question_with_llama(question):
         return "No documents indexed for retrieval. Please upload files first."
 
     # Retrieve relevant documents
-    retriever = vectorstore.as_retriever(search_type="similarity", search_kwargs={"k": 3})
+    retriever = vectorstore.as_retriever()
     retrieved_docs = retriever.get_relevant_documents(question)
 
     if not retrieved_docs:
         return "No relevant documents found for your question."
-    
-    prompt = ChatPromptTemplate.from_messages([
-    MessagesPlaceholder(variable_name="chat_history"),
-    ("user", "{input}"),
-    ("user", "Given the above conversation, generate a search query to look up in order to get information relevant to the conversation")
-    ])
 
-    history_retriever_chain = create_history_aware_retriever(llm,retriever,prompt)
+    # Combine the content of retrieved documents
+    combined_context = " ".join([doc.page_content for doc in retrieved_docs])
 
-    answer_prompt = ChatPromptTemplate.from_messages([
-    ("system", "Answer the user's questions based on the below context:\n\n{context}"),
-    MessagesPlaceholder(variable_name="chat_history"),
-    ("user", "{input}")
-    ])
+    # Prepare the prompt for the model
+    prompt = f"Context: {combined_context}\n\nQuestion: {question}\nAnswer:"
 
-    #Create the document processing chain
-    document_chain = create_stuff_documents_chain(llm, answer_prompt)
-
-    #Create the final conversational retrieval chain
-    conversational_retrieval_chain = create_retrieval_chain(history_retriever_chain, document_chain)
-
-    chat_history = []
-
-    response = conversational_retrieval_chain.invoke({
-    'chat_history': chat_history,
-    "input": question
-    })
-
-    chat_history.append((HumanMessage(content=question), AIMessage(content=response["answer"])))
+    # Generate a response using the Ollama model
+    response = llm(prompt)
 
     # Return the generated response
-    return response['answer']
+    return response
 
 # <-------------------------------------------- Word Cloud Function---------------------------------->
 def generate_word_cloud(text):
@@ -263,6 +234,175 @@ def extract_highlights_with_ollama(text):
     return highlights
 
 
+
+
+# <--------------------------------------------Course Path Generation Functions---------------------------------->
+# def extract_unique_keywords(text, num_keywords=10):
+#     """
+#     Extracts unique course-related keywords using KeyBERT.
+#     """
+#     from keybert import KeyBERT  # Ensure KeyBERT is imported
+#     kw_model = KeyBERT()
+
+#     # Extract keywords and ensure they are unique
+#     keywords = kw_model.extract_keywords(text, keyphrase_ngram_range=(1, 2), stop_words="english", top_n=num_keywords)
+#     unique_keywords = list(set([kw[0] for kw in keywords]))  # Remove duplicates
+#     return unique_keywords
+
+
+# def extract_meaningful_keywords(text, num_keywords=10):
+#     """
+#     Extracts meaningful course-related keywords using LLaMA.
+#     """
+#     # Prepare the prompt for LLaMA to identify meaningful course-related keywords
+#     prompt = f"""
+#     Extract the most meaningful and structured course-related topics from the following text. 
+#     Ensure the topics are actionable and related to well-defined subjects like "Machine Learning," "Python," "Java," etc.
+#     Limit the output to {num_keywords} topics:
+    
+#     {text}
+#     """
+
+#     # Generate keywords using the locally running LLaMA model
+#     response = llm(prompt)
+
+#     # Extract the keywords from the response (assuming one topic per line or comma-separated)
+#     keywords = [keyword.strip() for keyword in response.split("\n") if keyword.strip()]
+#     return keywords[:num_keywords]  # Limit to the top num_keywords
+
+
+# def parse_learning_path_to_graph(learning_path):
+#     """
+#     Parses the learning path text into a hierarchical graph structure for visualization.
+#     Assumes LLaMA returns structured text with levels: Beginner, Intermediate, Advanced.
+#     """
+#     levels = {"Beginner": [], "Intermediate": [], "Advanced": []}
+#     for line in learning_path.split("\n"):
+#         if line.startswith("Beginner"):
+#             levels["Beginner"] = [topic.strip() for topic in line[len("Beginner:"):].split(",") if topic.strip()]
+#         elif line.startswith("Intermediate"):
+#             levels["Intermediate"] = [topic.strip() for topic in line[len("Intermediate:"):].split(",") if topic.strip()]
+#         elif line.startswith("Advanced"):
+#             levels["Advanced"] = [topic.strip() for topic in line[len("Advanced:"):].split(",") if topic.strip()]
+#     return levels
+
+# def visualize_roadmap(keyword, levels):
+#     """
+#     Creates a roadmap-style visualization for the learning path using NetworkX.
+#     """
+#     graph = nx.DiGraph()
+
+#     # Add nodes and edges for the hierarchical structure
+#     for i, level in enumerate(["Beginner", "Intermediate", "Advanced"]):
+#         if levels[level]:
+#             for topic in levels[level]:
+#                 graph.add_node(topic, level=level)
+#                 if i > 0:  # Link nodes from the previous level
+#                     for prev_topic in levels[["Beginner", "Intermediate", "Advanced"][i - 1]]:
+#                         graph.add_edge(prev_topic, topic)
+
+#     # Generate positions for the hierarchical layout
+#     pos = nx.multipartite_layout(graph, subset_key="level")
+
+#     # Draw the graph
+#     plt.figure(figsize=(12, 8))
+#     nx.draw(
+#         graph, pos, with_labels=True, node_size=3000, node_color="skyblue", 
+#         font_size=10, font_weight="bold", edge_color="gray", arrowsize=15
+#     )
+#     plt.title(f"Learning Path Roadmap for '{keyword}'")
+#     st.pyplot(plt)
+
+def extract_meaningful_keywords_with_llama(text, num_keywords=10):
+    """
+    Extracts structured, course-like keywords using LLaMA.
+    Filters to ensure actionable topics are returned.
+    """
+    prompt = f"""
+    From the following text, identify up to {num_keywords} concise, well-defined course topics.
+    Only return short, actionable topics like "Python," "Machine Learning," "Deep Learning," etc.
+    Avoid explanations, summaries, or full sentences.
+    
+    {text}
+    """
+
+    # Use the LLaMA model to generate the keywords
+    response = llm(prompt)
+
+    # Clean and extract keywords from the response
+    keywords = [keyword.strip() for keyword in response.split(",") if len(keyword.strip()) > 0]
+    return keywords[:num_keywords]  # Limit to the top num_keywords
+
+
+def generate_learning_path_with_llama(keyword):
+    """
+    Generates a structured learning path for the given keyword using the LLaMA model.
+    """
+    prompt = f"""
+    Create a structured learning roadmap for the topic '{keyword}' divided into three levels: Beginner, Intermediate, and Advanced.
+    Each level should have 3-5 concise subtopics or key concepts to learn. Do not include explanations or long descriptions.
+    Example format:
+    Beginner: Topic 1, Topic 2
+    Intermediate: Topic 3, Topic 4
+    Advanced: Topic 5, Topic 6
+    """
+
+    # Use the LLaMA model to generate the learning path
+    response = llm(prompt)
+
+    # Return the structured learning path
+    return response.strip()
+
+
+def parse_and_clean_learning_path(learning_path):
+    """
+    Cleans and parses the learning path text into a hierarchical format for visualization.
+    Handles irregular responses and ensures proper structure.
+    """
+    levels = {"Beginner": [], "Intermediate": [], "Advanced": []}
+
+    # Parse the LLaMA response and map to levels
+    for line in learning_path.split("\n"):
+        if line.lower().startswith("beginner"):
+            levels["Beginner"] = [topic.strip() for topic in line[len("Beginner:"):].split(",") if topic.strip()]
+        elif line.lower().startswith("intermediate"):
+            levels["Intermediate"] = [topic.strip() for topic in line[len("Intermediate:"):].split(",") if topic.strip()]
+        elif line.lower().startswith("advanced"):
+            levels["Advanced"] = [topic.strip() for topic in line[len("Advanced:"):].split(",") if topic.strip()]
+    return levels
+
+def visualize_roadmap_with_fallback(keyword, levels):
+    """
+    Creates a roadmap-style visualization or handles fallback in case of insufficient data.
+    """
+    graph = nx.DiGraph()
+
+    # Add nodes and edges for hierarchical levels
+    for i, level in enumerate(["Beginner", "Intermediate", "Advanced"]):
+        if levels[level]:
+            for topic in levels[level]:
+                graph.add_node(topic, level=level)
+                if i > 0:  # Link to the previous level
+                    for prev_topic in levels[["Beginner", "Intermediate", "Advanced"][i - 1]]:
+                        graph.add_edge(prev_topic, topic)
+
+    if graph.number_of_nodes() == 0:
+        st.warning(f"No structured roadmap found for '{keyword}'. Check LLaMA output for adjustments.")
+        return
+
+    # Generate hierarchical positions for the graph
+    pos = nx.multipartite_layout(graph, subset_key="level")
+
+    # Draw the graph
+    plt.figure(figsize=(12, 8))
+    nx.draw(
+        graph, pos, with_labels=True, node_size=3000, node_color="lightblue",
+        font_size=10, font_weight="bold", edge_color="gray", arrowsize=15
+    )
+    plt.title(f"Learning Path Roadmap for '{keyword}'")
+    st.pyplot(plt)
+
+
 # <-------------------------------------------------------Main App-------------------------------->
 st.sidebar.header("Welcome!")
 st.sidebar.info("Upload corporate training documents, explore their contents, get concise summaries, generate word clouds, and ask interactive questions!")
@@ -297,24 +437,11 @@ with tabs[2]:
 
 with tabs[3]:
     st.header("Interactive Q&A")
-    with st.form('Q&A form'):
-        question = st.text_area("Ask a question about the uploaded documents:")
-        submit = st.form_submit_button("Submit")
-
-    if "chat_history" not in st.session_state:
-        st.session_state['chat_history'] = []
-
-    if submit and question:
-        with st.spinner('Generating response........'):
-            result  = answer_question_with_llama(question)
-            st.session_state['chat_history'].append({'user': question, 'bot': result})
-            st.write(result)
-
-    st.write("## Chat History")
-    for chat in st.session_state['chat_history']:
-        st.write(f"**User**: {chat['user']}")
-        st.write(f"**Bot**: {chat['bot']}")
-        st.write("---")
+    question = st.text_input("Ask a question about the uploaded documents:")
+    if question:
+        answer = answer_question_with_llama(question)
+        st.write("### Answer:")
+        st.write(answer)
 
 with tabs[4]:
     st.header("Word Cloud")
@@ -343,3 +470,24 @@ with tabs[6]:
                 st.write("No significant entities or highlights found.")
     else:
         st.info("No documents uploaded yet.")
+
+
+with tabs[7]:
+    st.header("Learning Path Roadmap")
+    if document_store:
+        for doc in document_store:
+            st.subheader(f"Document: {doc.metadata['name']}")
+
+            # Extract meaningful course-like keywords
+            keywords = extract_meaningful_keywords_with_llama(doc.page_content)
+            st.write("### Keywords Identified:")
+            st.write(", ".join(keywords))
+
+            # Generate and visualize roadmaps for each keyword
+            for keyword in keywords:
+                st.write(f"### Roadmap for {keyword}:")
+                learning_path = generate_learning_path_with_llama(keyword)  # Get LLaMA response
+                levels = parse_and_clean_learning_path(learning_path)  # Parse response into levels
+                visualize_roadmap_with_fallback(keyword, levels)  # Visualize roadmap
+    else:
+        st.info("Please upload documents to generate learning paths.")
