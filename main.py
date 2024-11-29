@@ -21,6 +21,11 @@ from transformers import BartForConditionalGeneration, BartTokenizer
 from difflib import HtmlDiff, SequenceMatcher
 import tempfile
 from transformers import AutoModelForCausalLM, AutoTokenizer
+import random
+import re
+import pprint
+import json
+
 
 
 # <-----------------------------------Set up Streamlit app------------------------------------>
@@ -48,7 +53,7 @@ vectorstore = None
 document_store = []
 
 # <---------------------------------------------Define tabs for functionalities------------------------------------>
-tabs = st.tabs(["Upload Files", "Original Context", "Document Summarization", "Interactive Q&A", "Word Cloud", "Compare Docs"])
+tabs = st.tabs(["Upload Files", "Original Context", "Document Summarization", "Interactive Q&A", "Word Cloud", "Compare Docs","Quiz"])
 
 # <--------------------------------------------------Upload and process files------------------------------------->
 def process_files(uploaded_files):
@@ -169,6 +174,178 @@ def compare_documents():
     similarity = SequenceMatcher(None, doc1_content, doc2_content).ratio()
     st.write(f"### Similarity Score: {similarity:.2%}")
 
+
+#<--------------------------------------------Quiz------------------------------------------------------------->
+
+def parse_quiz(response):
+    quiz_questions = []
+    try:
+        # Split the response into individual questions using regex
+        questions = re.split(r"(?=Question \d+:)", response)
+        
+        for question in questions:
+            if not question.strip():
+                continue
+            
+            # Extract the question text
+            question_match = re.search(r"Question \d+: (.+)", question)
+            question_text = question_match.group(1).strip() if question_match else None
+            
+            # Extract choices
+            choices = {}
+            choice_matches = re.findall(r"([A-D])\) (.+)", question)
+
+            for choice in choice_matches:
+                choices[choice[0]] = choice[1].strip()
+            
+            # Extract the answer
+            answer_match = re.search(r"Answer: ([A-D])", question)
+            correct_answer = answer_match.group(1).strip() if answer_match else None
+            
+            if question_text and choices and correct_answer:
+                quiz_questions.append({
+                    "question": question_text,
+                    "choices": [f"{key}) {value}" for key, value in choices.items()],
+                    "answer": correct_answer
+                })
+        
+        return quiz_questions
+
+    except Exception as e:
+        raise ValueError(f"Error while parsing quiz questions: {e}")    
+
+
+
+
+def generate_quiz_questions(document_content, num_questions=5):
+    """
+    Generate quiz questions based on the document content.
+    """
+    # Construct the prompt for the LLM
+    question_prompt = (
+    f"Generate {num_questions} multiple-choice quiz questions from the following text:\n\n{document_content}\n\n"
+    "Format the output as:\n"
+    "Question [number]: [Your question here]\n"
+    "Choices:\n"
+    "A) [Option A]\n"
+    "B) [Option B]\n"
+    "C) [Option C]\n"
+    "D) [Option D]\n"
+    "Answer: [Correct option letter]\n"
+    "Ensure all questions are relevant and based on the text provided."
+    )
+    
+    # Get the response from the LLM
+    response = llm(question_prompt)
+    
+    # Validate and parse the structured response
+    try:
+        quiz_questions = parse_quiz(response)
+        return quiz_questions
+    except Exception as e:
+        st.error(f"Error parsing quiz questions: {e}")
+        return []
+
+
+# display the quiz using Radio Buttons
+def display_quiz_with_radio(quiz_questions):
+    """
+    Display all questions on one page and handle user interactions without reloading the page unnecessarily.
+    """
+    # Initialize session state for user answers
+    if "user_answers" not in st.session_state:
+        st.session_state.user_answers = {}
+
+    st.title("Quiz")
+
+    # Loop through all questions
+    for idx, question_data in enumerate(quiz_questions):
+        st.write(f"### Question {idx + 1}: {question_data['question']}")
+
+        # Fetch stored answer for the current question (if available)
+        stored_answer = st.session_state.user_answers.get(idx, "")
+
+        # Display radio buttons for each question
+        user_answer = st.radio(
+            f"Select your answer for Question {idx + 1}:",
+            options=[""] + question_data['choices'],  # Add a blank option as the default
+            index=0 if stored_answer == "" else question_data['choices'].index(stored_answer) + 1,
+            key=f"q_{idx}",
+        )
+
+        # Store the user's selection
+        if user_answer != "":
+            st.session_state.user_answers[idx] = user_answer
+
+        # Display feedback dynamically
+        if user_answer != "":
+            correct_answer = question_data['answer']
+            if user_answer == correct_answer:
+                st.success(f"Correct! The answer is: {correct_answer}")
+            else:
+                st.error(f"Incorrect. The correct answer is: {correct_answer}")
+
+    # Submit button for finishing the quiz
+    if st.button("Finish Quiz"):
+        st.write("## Quiz Summary:")
+        for idx, question_data in enumerate(quiz_questions):
+            user_answer = st.session_state.user_answers.get(idx, "No answer")
+            correct_answer = question_data['answer']
+            is_correct = "✔️" if user_answer == correct_answer else "❌"
+            st.write(
+                f"**Q{idx + 1}: {question_data['question']}**\n"
+                f"Correct Answer: {correct_answer}\n"
+            )
+
+
+#display quiz questions with Checkboxes
+def display_quiz(quiz_questions):
+    # Initialize session state for answers and feedback
+    if "user_answers" not in st.session_state:
+        st.session_state.user_answers = {idx: [] for idx in range(len(quiz_questions))}
+    if "submitted" not in st.session_state:
+        st.session_state.submitted = False
+
+    st.title("Quiz")
+
+    for idx, question_data in enumerate(quiz_questions):
+        st.write(f"### Question {idx + 1}: {question_data['question']}")
+
+        selected_choices = st.session_state.user_answers[idx]
+
+        # Display choices as checkboxes
+        for choice in question_data["choices"]:
+            is_checked = choice in selected_choices
+            if st.checkbox(label=choice, value=is_checked, key=f"checkbox_q{idx}_{choice}"):
+                if choice not in selected_choices:
+                    selected_choices.append(choice)
+            else:
+                if choice in selected_choices:
+                    selected_choices.remove(choice)
+
+        # Update session state for selected answers
+        st.session_state.user_answers[idx] = selected_choices
+
+    # Submit button to finalize answers
+    if st.button("Submit Quiz"):
+        st.session_state.submitted = True
+
+    # Display feedback after submission
+    if st.session_state.submitted:
+        st.write("## Quiz Summary:")
+        for idx, question_data in enumerate(quiz_questions):
+            user_answer = st.session_state.user_answers[idx]
+            correct_answer = question_data["answer"]
+            is_correct = "✔️" if correct_answer in user_answer and len(user_answer) == 1 else "❌"
+            st.write(
+                f"**Q{idx + 1}: {question_data['question']}**\n"
+                f"Correct Answer: {correct_answer}\n"
+            )
+
+
+
+
+
 # <-------------------------------------------------------Main App-------------------------------->
 st.sidebar.header("Welcome!")
 st.sidebar.info("Upload corporate training documents, explore their contents, get concise summaries, generate word clouds, and ask interactive questions!")
@@ -222,3 +399,15 @@ with tabs[5]:
     st.header("Compare Documents")
     compare_documents()
 
+with tabs[6]:
+    st.header("Quiz")
+    if document_store:
+        quiz_document = st.selectbox("Select a document for the quiz:", [doc.metadata["name"] for doc in document_store])
+        selected_doc = next(doc for doc in document_store if doc.metadata["name"] == quiz_document)
+
+        # Generate questions based on the selected document
+        st.write("Generating quiz questions...")
+        quiz_questions = generate_quiz_questions(selected_doc.page_content)
+        display_quiz_with_radio(quiz_questions)
+    else:
+        st.info("Please upload documents to create quizzes.")
