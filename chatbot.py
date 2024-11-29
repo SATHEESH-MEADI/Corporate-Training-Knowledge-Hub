@@ -13,6 +13,14 @@ from langchain_community.embeddings import HuggingFaceEmbeddings  # Updated impo
 from langchain.chains import LLMChain
 from langchain.prompts import PromptTemplate
 from langchain.chains.question_answering import load_qa_chain
+from langchain_core.messages import HumanMessage,AIMessage
+from langchain.text_splitter import RecursiveCharacterTextSplitter
+from langchain_core.prompts import ChatPromptTemplate
+from langchain_core.prompts import MessagesPlaceholder
+from langchain.chains.combine_documents import create_stuff_documents_chain
+from langchain.chains import create_retrieval_chain
+from langchain.chains import create_history_aware_retriever
+from langchain.memory import ConversationBufferMemory
 from langchain_community.llms import HuggingFacePipeline  # Updated imports
 import os
 from wordcloud import WordCloud
@@ -21,6 +29,7 @@ from transformers import BartForConditionalGeneration, BartTokenizer
 from difflib import HtmlDiff, SequenceMatcher
 import tempfile
 from transformers import AutoModelForCausalLM, AutoTokenizer
+from transformers import AutoModelForSeq2SeqLM, 
 
 
 # <-----------------------------------Set up Streamlit app------------------------------------>
@@ -92,11 +101,14 @@ def process_files(uploaded_files):
             continue
 
         document_store.append(document)
-        texts = [document.page_content]
+
+        splitter = RecursiveCharacterTextSplitter(chunk_size=1000, chunk_overlap=200)
+        chunks = splitter.split_documents([document])
+
         if vectorstore is None:
-            vectorstore = FAISS.from_texts(texts, embedding_model)
+            vectorstore = FAISS.from_documents(chunks, embedding_model)
         else:
-            vectorstore.add_texts(texts)
+            vectorstore.add_documents(chunks)
 
         os.remove(temp_file_path)
 
@@ -120,23 +132,43 @@ def answer_question_with_llama(question):
         return "No documents indexed for retrieval. Please upload files first."
 
     # Retrieve relevant documents
-    retriever = vectorstore.as_retriever()
+    retriever = vectorstore.as_retriever(search_type="similarity", search_kwargs={"k": 3})
     retrieved_docs = retriever.get_relevant_documents(question)
 
     if not retrieved_docs:
         return "No relevant documents found for your question."
+    
+    prompt = ChatPromptTemplate.from_messages([
+    MessagesPlaceholder(variable_name="chat_history"),
+    ("user", "{input}"),
+    ("user", "Given the above conversation, generate a search query to look up in order to get information relevant to the conversation")
+    ])
 
-    # Combine the content of retrieved documents
-    combined_context = " ".join([doc.page_content for doc in retrieved_docs])
+    history_retriever_chain = create_history_aware_retriever(llm,retriever,prompt)
 
-    # Prepare the prompt for the model
-    prompt = f"Context: {combined_context}\n\nQuestion: {question}\nAnswer:"
+    answer_prompt = ChatPromptTemplate.from_messages([
+    ("system", "Answer the user's questions based on the below context:\n\n{context}"),
+    MessagesPlaceholder(variable_name="chat_history"),
+    ("user", "{input}")
+    ])
 
-    # Generate a response using the Ollama model
-    response = llm(prompt)
+    #Create the document processing chain
+    document_chain = create_stuff_documents_chain(llm, answer_prompt)
+
+    #Create the final conversational retrieval chain
+    conversational_retrieval_chain = create_retrieval_chain(history_retriever_chain, document_chain)
+
+    chat_history = []
+
+    response = conversational_retrieval_chain.invoke({
+    'chat_history': chat_history,
+    "input": question
+    })
+
+    chat_history.append((HumanMessage(content=question), AIMessage(content=response["answer"])))
 
     # Return the generated response
-    return response
+    return response['answer']
 
 # <-------------------------------------------- Word Cloud Function---------------------------------->
 def generate_word_cloud(text):
@@ -203,11 +235,24 @@ with tabs[2]:
 
 with tabs[3]:
     st.header("Interactive Q&A")
-    question = st.text_input("Ask a question about the uploaded documents:")
-    if question:
-        answer = answer_question_with_llama(question)
-        st.write("### Answer:")
-        st.write(answer)
+    with st.form('Q&A form'):
+        question = st.text_area("Ask a question about the uploaded documents:")
+        submit = st.form_submit_form("Submit")
+
+    if "chat_history" not in st.session_state:
+        st.session_state['chat_history'] = []
+
+    if submit and question:
+        with st.spinner('Generating response........'):
+            result  = answer_question_with_llama(question)
+            st.session_state['chat_history'].append({'user': question, 'bot': result})
+            st.write(result)
+
+    st.write("## Chat History")
+    for chat in st.session_state['chat_history']:
+        st.write(f"**User**: {chat['user']}")
+        st.write(f"**Bot**: {chat['bot']}")
+        st.write("---")
 
 with tabs[4]:
     st.header("Word Cloud")
