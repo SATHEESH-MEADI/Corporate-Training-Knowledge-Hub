@@ -160,6 +160,12 @@ def answer_question_with_llama(question):
 
     chat_history = []
 
+    if chat_history:
+       response = conversational_retrieval_chain.invoke({
+        "input": question
+        })
+ 
+
     response = conversational_retrieval_chain.invoke({
     'chat_history': chat_history,
     "input": question
@@ -235,24 +241,25 @@ with tabs[2]:
 
 with tabs[3]:
     st.header("Interactive Q&A")
-    with st.form('Q&A form'):
-        question = st.text_area("Ask a question about the uploaded documents:")
-        submit = st.form_submit_button("Submit")
 
-    if "chat_history" not in st.session_state:
-        st.session_state['chat_history'] = []
+    if 'messages' not in st.session_state:
+        st.session_state.messages = []
 
-    if submit and question:
+    for message in st.session_state.messages:
+        with st.chat_message(message['role']):
+            st.markdown(message['content'])
+
+    if prompt := st.chat_input('Ask questions about the uploaded document(s)'):
+        st.session_sate.messages.append({'role': '**👽**', 'content': prompt})
+
+        with st.chat_message('user'):
+            st.markdown(prompt)
+
+    with st.chat_message('bot'):
         with st.spinner('Generating response........'):
-            result  = answer_question_with_llama(question)
-            st.session_state['chat_history'].append({'user': question, 'bot': result})
-            st.write(result)
-
-    st.write("## Chat History")
-    for chat in st.session_state['chat_history']:
-        st.write(f"**User**: {chat['user']}")
-        st.write(f"**Bot**: {chat['bot']}")
-        st.write("---")
+            result = st.write_stream(answer_question_with_llama())
+    
+    st.session_state.messages.append({'role': '**🤖**', 'content': result})
 
 with tabs[4]:
     st.header("Word Cloud")
