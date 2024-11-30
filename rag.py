@@ -122,67 +122,8 @@ def summarize_text(text, max_length=500, min_length=30):
     summary = bart_tokenizer.decode(summary_ids[0], skip_special_tokens=True)
     return summary
 
-# <------------------------------------------------------Interactive Q&A Functionality----------------------------------->
-
-
-# ... other imports and code
 
 # <------------------------------------------------------Interactive Q&A Functionality----------------------------------->
-
-
-
-# def answer_question_with_llama(question):
-#     """
-#     Answers a question using the locally installed LLaMA model with Ollama.
-#     """
-#     if not vectorstore:
-#         return "No documents indexed for retrieval. Please upload files first."
-
-#     # Retrieve relevant documents
-#     retriever = vectorstore.as_retriever(search_type="similarity", search_kwargs={"k": 3})
-#     retrieved_docs = retriever.get_relevant_documents(question)
-
-#     if not retrieved_docs:
-#         return "No relevant documents found for your question."
-    
-#     prompt = ChatPromptTemplate.from_messages([
-#     MessagesPlaceholder(variable_name="chat_history"),
-#     ("user", "{input}"),
-#     ("user", "Given the above conversation, generate a search query to look up in order to get information relevant to the conversation")
-#     ])
-
-#     history_retriever_chain = create_history_aware_retriever(llm,retriever,prompt)
-
-#     answer_prompt = ChatPromptTemplate.from_messages([
-#     ("system", "Answer the user's questions based on the below context:\n\n{context}"),
-#     MessagesPlaceholder(variable_name="chat_history"),
-#     ("user", "{input}")
-#     ])
-
-#     #Create the document processing chain
-#     document_chain = create_stuff_documents_chain(llm, answer_prompt)
-
-#     #Create the final conversational retrieval chain
-#     conversational_retrieval_chain = create_retrieval_chain(history_retriever_chain, document_chain)
-
-#     chat_history = []
-
-#     if chat_history:
-#        response = conversational_retrieval_chain.invoke({
-#         "input": question
-#         })
- 
-
-#     response = conversational_retrieval_chain.invoke({
-#     'chat_history': chat_history,
-#     "input": question
-#     })
-
-#     chat_history.append((HumanMessage(content=question), AIMessage(content=response["answer"])))
-
-#     # Return the generated response
-#     return response['answer']
-
 
 
 def answer_question_with_llama(question):
