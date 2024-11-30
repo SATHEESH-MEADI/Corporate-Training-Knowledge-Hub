@@ -29,7 +29,7 @@ from transformers import BartForConditionalGeneration, BartTokenizer
 from difflib import HtmlDiff, SequenceMatcher
 import tempfile
 from transformers import AutoModelForCausalLM, AutoTokenizer
-from transformers import AutoModelForSeq2SeqLM, 
+from transformers import AutoModelForSeq2SeqLM
 
 
 # <-----------------------------------Set up Streamlit app------------------------------------>
