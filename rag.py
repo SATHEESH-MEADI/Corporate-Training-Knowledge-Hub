@@ -124,57 +124,133 @@ def summarize_text(text, max_length=500, min_length=30):
 
 # <------------------------------------------------------Interactive Q&A Functionality----------------------------------->
 
+
+# ... other imports and code
+
+# <------------------------------------------------------Interactive Q&A Functionality----------------------------------->
+
+
+
+# def answer_question_with_llama(question):
+#     """
+#     Answers a question using the locally installed LLaMA model with Ollama.
+#     """
+#     if not vectorstore:
+#         return "No documents indexed for retrieval. Please upload files first."
+
+#     # Retrieve relevant documents
+#     retriever = vectorstore.as_retriever(search_type="similarity", search_kwargs={"k": 3})
+#     retrieved_docs = retriever.get_relevant_documents(question)
+
+#     if not retrieved_docs:
+#         return "No relevant documents found for your question."
+    
+#     prompt = ChatPromptTemplate.from_messages([
+#     MessagesPlaceholder(variable_name="chat_history"),
+#     ("user", "{input}"),
+#     ("user", "Given the above conversation, generate a search query to look up in order to get information relevant to the conversation")
+#     ])
+
+#     history_retriever_chain = create_history_aware_retriever(llm,retriever,prompt)
+
+#     answer_prompt = ChatPromptTemplate.from_messages([
+#     ("system", "Answer the user's questions based on the below context:\n\n{context}"),
+#     MessagesPlaceholder(variable_name="chat_history"),
+#     ("user", "{input}")
+#     ])
+
+#     #Create the document processing chain
+#     document_chain = create_stuff_documents_chain(llm, answer_prompt)
+
+#     #Create the final conversational retrieval chain
+#     conversational_retrieval_chain = create_retrieval_chain(history_retriever_chain, document_chain)
+
+#     chat_history = []
+
+#     if chat_history:
+#        response = conversational_retrieval_chain.invoke({
+#         "input": question
+#         })
+ 
+
+#     response = conversational_retrieval_chain.invoke({
+#     'chat_history': chat_history,
+#     "input": question
+#     })
+
+#     chat_history.append((HumanMessage(content=question), AIMessage(content=response["answer"])))
+
+#     # Return the generated response
+#     return response['answer']
+
+
+
 def answer_question_with_llama(question):
     """
     Answers a question using the locally installed LLaMA model with Ollama.
     """
+    # Guard clause for empty/None question
+    if not question:
+        return "Please provide a question to answer."
+    
+    # Guard clause for vectorstore
     if not vectorstore:
         return "No documents indexed for retrieval. Please upload files first."
 
-    # Retrieve relevant documents
-    retriever = vectorstore.as_retriever(search_type="similarity", search_kwargs={"k": 3})
-    retrieved_docs = retriever.get_relevant_documents(question)
+    try:
+        # Retrieve relevant documents
+        retriever = vectorstore.as_retriever(search_type="similarity", search_kwargs={"k": 3})
+        retrieved_docs = retriever.get_relevant_documents(question)
 
-    if not retrieved_docs:
-        return "No relevant documents found for your question."
-    
-    prompt = ChatPromptTemplate.from_messages([
-    MessagesPlaceholder(variable_name="chat_history"),
-    ("user", "{input}"),
-    ("user", "Given the above conversation, generate a search query to look up in order to get information relevant to the conversation")
-    ])
+        if not retrieved_docs:
+            return "No relevant documents found for your question."
+        
+        prompt = ChatPromptTemplate.from_messages([
+            MessagesPlaceholder(variable_name="chat_history"),
+            ("user", "{input}"),
+            ("user", "Given the above conversation, generate a search query to look up in order to get information relevant to the conversation")
+        ])
 
-    history_retriever_chain = create_history_aware_retriever(llm,retriever,prompt)
+        history_retriever_chain = create_history_aware_retriever(llm, retriever, prompt)
 
-    answer_prompt = ChatPromptTemplate.from_messages([
-    ("system", "Answer the user's questions based on the below context:\n\n{context}"),
-    MessagesPlaceholder(variable_name="chat_history"),
-    ("user", "{input}")
-    ])
+        answer_prompt = ChatPromptTemplate.from_messages([
+            ("system", "Answer the user's questions based on the below context:\n\n{context}"),
+            MessagesPlaceholder(variable_name="chat_history"),
+            ("user", "{input}")
+        ])
 
-    #Create the document processing chain
-    document_chain = create_stuff_documents_chain(llm, answer_prompt)
+        # Create the document processing chain
+        document_chain = create_stuff_documents_chain(llm, answer_prompt)
 
-    #Create the final conversational retrieval chain
-    conversational_retrieval_chain = create_retrieval_chain(history_retriever_chain, document_chain)
+        # Create the final conversational retrieval chain
+        conversational_retrieval_chain = create_retrieval_chain(
+            history_retriever_chain, 
+            document_chain
+        )
 
-    chat_history = []
+        # Initialize chat history if not exists
+        chat_history = []
 
-    if chat_history:
-       response = conversational_retrieval_chain.invoke({
-        "input": question
+        # Invoke the chain with the question
+        response = conversational_retrieval_chain.invoke({
+            'chat_history': chat_history,
+            "input": question
         })
- 
 
-    response = conversational_retrieval_chain.invoke({
-    'chat_history': chat_history,
-    "input": question
-    })
+        # Update chat history
+        chat_history.append((
+            HumanMessage(content=question), 
+            AIMessage(content=response["answer"])
+        ))
 
-    chat_history.append((HumanMessage(content=question), AIMessage(content=response["answer"])))
+        return response['answer']
 
-    # Return the generated response
-    return response['answer']
+    except Exception as e:
+        return f"An error occurred while processing your question: {str(e)}"
+
+
+
+
 
 # <-------------------------------------------- Word Cloud Function---------------------------------->
 def generate_word_cloud(text):
@@ -241,25 +317,39 @@ with tabs[2]:
 
 with tabs[3]:
     st.header("Interactive Q&A")
+    
+    # Check for vectorstore
+    if not vectorstore:
+        st.info("Please upload documents to enable the Q&A functionality.")
+        st.stop()
 
+    # Initialize session state for messages if not exists
     if 'messages' not in st.session_state:
         st.session_state.messages = []
 
+    # Display existing messages
     for message in st.session_state.messages:
         with st.chat_message(message['role']):
             st.markdown(message['content'])
 
+    # Handle new user input
     if prompt := st.chat_input('Ask questions about the uploaded document(s)'):
-        st.session_sate.messages.append({'role': '**👽**', 'content': prompt})
+        # Fixed typo in session_state
+        st.session_state.messages.append({'role': '👽', 'content': prompt})
 
         with st.chat_message('user'):
             st.markdown(prompt)
 
-    with st.chat_message('bot'):
-        with st.spinner('Generating response........'):
-            result = st.write_stream(answer_question_with_llama())
-    
-    st.session_state.messages.append({'role': '**🤖**', 'content': result})
+        with st.chat_message('assistant'):
+            with st.spinner('Generating response...'):
+                result = answer_question_with_llama(prompt)
+                st.write(result)
+
+        st.session_state.messages.append({'role': '🤖', 'content': result})
+
+
+
+
 
 with tabs[4]:
     st.header("Word Cloud")
