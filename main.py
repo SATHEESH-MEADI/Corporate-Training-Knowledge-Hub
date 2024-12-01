@@ -69,7 +69,7 @@ document_store = []
 
 # <---------------------------------------------Define tabs for functionalities------------------------------------>
 
-tabs = st.tabs(["Upload Files", "Original Context", "Document Summarization", "Interactive Q&A", "Word Cloud", "Compare Docs", "Highlights","Quiz"])
+tabs = st.tabs(["Upload Files", "Original Context", "Document Summarization", "Interactive Chatbot", "Quiz", "Compare Docs","Word Cloud", "Highlights"])
 
 # <--------------------------------------------------Upload and process files------------------------------------->
 def process_files(uploaded_files):
@@ -476,7 +476,7 @@ with tabs[3]:
         st.session_state.messages.append({'role': '🤖', 'content': result})
 
 
-with tabs[4]:
+with tabs[6]:
     st.header("Word Cloud")
     if document_store:
         text_data = " ".join([doc.page_content for doc in document_store])
@@ -489,7 +489,7 @@ with tabs[5]:
     st.header("Compare Documents")
     compare_documents()
 
-with tabs[6]:
+with tabs[7]:
     st.header("Highlights (Concise Contextual Insights)")
 
     if document_store:
@@ -505,7 +505,7 @@ with tabs[6]:
         st.info("No documents uploaded yet.")
 
 # Integration with Streamlit Tabs
-with tabs[7]:
+with tabs[4]:
     st.header("Quiz")
     if document_store:
         # Allow the user to select a document for the quiz
