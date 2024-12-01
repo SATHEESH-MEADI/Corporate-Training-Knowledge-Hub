@@ -143,8 +143,8 @@ def answer_question_with_llama(question):
         retriever = vectorstore.as_retriever(search_type="similarity", search_kwargs={"k": 3})
         retrieved_docs = retriever.get_relevant_documents(question)
 
-        if not retrieved_docs:
-            return "No relevant documents found for your question."
+        if not retrieved_docs or len(retrieved_docs) == 0:
+            return "No relevant answers found for your question."
         
         prompt = ChatPromptTemplate.from_messages([
             MessagesPlaceholder(variable_name="chat_history"),
@@ -155,7 +155,8 @@ def answer_question_with_llama(question):
         history_retriever_chain = create_history_aware_retriever(llm, retriever, prompt)
 
         answer_prompt = ChatPromptTemplate.from_messages([
-            ("system", "Answer the user's questions based on the below context:\n\n{context}"),
+            ("system", "You are a helpful assistant. Answer the user's questions strictly based on the following context. "
+             "If the answer cannot be found in the context, reply with 'I'm sorry, I don't have enough information from the provided documents to answer that.'\n\n{context}"),
             MessagesPlaceholder(variable_name="chat_history"),
             ("user", "{input}")
         ])
