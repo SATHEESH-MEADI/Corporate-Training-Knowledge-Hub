@@ -275,22 +275,16 @@ with tabs[3]:
 
     # Handle new user input
     if prompt := st.chat_input('Ask questions about the uploaded document(s)'):
-        # Fixed typo in session_state
-        st.session_state.messages.append({'role': '👽', 'content': prompt})
+        st.session_sate.messages.append({'role': 'User', 'content': prompt})
 
         with st.chat_message('user'):
             st.markdown(prompt)
 
-        with st.chat_message('assistant'):
-            with st.spinner('Generating response...'):
-                result = answer_question_with_llama(prompt)
-                st.write(result)
-
-        st.session_state.messages.append({'role': '🤖', 'content': result})
-
-
-
-
+        with st.chat_message('bot'):
+            with st.spinner('Generating response........'):
+                result = st.write_stream(answer_question_with_llama())
+    
+        st.session_state.messages.append({'role': 'assistant', 'content': result})
 
 with tabs[4]:
     st.header("Word Cloud")
